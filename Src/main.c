@@ -20,6 +20,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -76,7 +77,9 @@ float imu2_data[9]= {0,0,0,0,0,0,0,0,0};
 
 unsigned char imu1_to_pc_buf[IMU_DATA_LEN];  // send to pc
 unsigned char imu2_to_pc_buf[IMU_DATA_LEN];
+unsigned char adc1_to_pc_buf[IMU_DATA_LEN];             // head num low high check
 unsigned char imu_state = 0;
+unsigned int adc_value1 = 0;
 
 unsigned char my_memcpy(unsigned char *dst, const unsigned char *src, unsigned char count)
 {
@@ -161,6 +164,20 @@ void check_imu(unsigned char *buf, unsigned char id)
 	}
 }
 
+void pack_adc_buf(unsigned char *buf, unsigned int value)
+{
+    int i = 0;
+    buf[0] = 0xAA;
+    buf[1] = 0xB1;
+    buf[2] = (value & 0x00ff); // low
+    buf[3] = (value >> 8);
+    buf[4] = buf[0] + buf[1] + buf[2] + buf[3];
+    
+    for(i = 5; i< IMU_DATA_LEN; i++)
+    {
+        buf[i] = 0;
+    }
+}
 
 /* USER CODE END 0 */
 
@@ -196,6 +213,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_USART1_UART_Init();
+  MX_ADC1_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
@@ -243,6 +261,20 @@ int main(void)
     {
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET); // LED off
     }
+    
+    // read adc value
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 50);
+
+    if(HAL_IS_BIT_SET(HAL_ADC_GetState(&hadc1), HAL_ADC_STATE_REG_EOC))
+    {
+        adc_value1 = HAL_ADC_GetValue(&hadc1);
+        
+        pack_adc_buf(adc1_to_pc_buf, adc_value1);
+//        printf("ADC2 Reading : %d \r\n",adc_value);
+//        printf("PA6 Voltage : %.4f \r\n",adc_value*3.3f/4096);
+    }
+
         
     /* USER CODE END WHILE */
 
@@ -263,6 +295,7 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the CPU, AHB and APB busses clocks 
   */
@@ -286,6 +319,12 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
@@ -425,6 +464,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 			//printf("send imu 2.\n");
 		}
+        
+        // send adc value to pc
+        HAL_UART_Transmit(&huart1, adc1_to_pc_buf, 35, 0xffff);
+        
         //printf("\nHAL_TIM_PeriodElapsedCallback timer3...\n\n");
     }
 }
