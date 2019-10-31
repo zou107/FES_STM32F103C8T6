@@ -27,7 +27,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+//#define DEBUG_ON
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -78,8 +78,9 @@ float imu2_data[9]= {0,0,0,0,0,0,0,0,0};
 unsigned char imu1_to_pc_buf[IMU_DATA_LEN];  // send to pc
 unsigned char imu2_to_pc_buf[IMU_DATA_LEN];
 unsigned char adc1_to_pc_buf[IMU_DATA_LEN];             // head num low high check
+unsigned char adc2_to_pc_buf[IMU_DATA_LEN];
 unsigned char imu_state = 0;
-unsigned int adc_value1 = 0;
+unsigned int adc_value[4] = {0,0,0,0};
 
 unsigned char my_memcpy(unsigned char *dst, const unsigned char *src, unsigned char count)
 {
@@ -164,11 +165,11 @@ void check_imu(unsigned char *buf, unsigned char id)
 	}
 }
 
-void pack_adc_buf(unsigned char *buf, unsigned int value)
+void pack_adc_buf(unsigned char *buf, unsigned int value, int id)
 {
     int i = 0;
     buf[0] = 0xAA;
-    buf[1] = 0xB1;
+    buf[1] = 0xB1 + id;
     buf[2] = (value & 0x00ff); // low
     buf[3] = (value >> 8);
     buf[4] = buf[0] + buf[1] + buf[2] + buf[3];
@@ -188,7 +189,7 @@ void pack_adc_buf(unsigned char *buf, unsigned int value)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+    int i = 0;
   /* USER CODE END 1 */
   
 
@@ -263,19 +264,23 @@ int main(void)
     }
     
     // read adc value
-    HAL_ADC_Start(&hadc1);
-    HAL_ADC_PollForConversion(&hadc1, 50);
-
-    if(HAL_IS_BIT_SET(HAL_ADC_GetState(&hadc1), HAL_ADC_STATE_REG_EOC))
-    {
-        adc_value1 = HAL_ADC_GetValue(&hadc1);
+    for(i = 0; i < 2; i++) {
+        HAL_ADC_Start(&hadc1);
+        HAL_ADC_PollForConversion(&hadc1, 0xffff);
         
-        pack_adc_buf(adc1_to_pc_buf, adc_value1);
-//        printf("ADC2 Reading : %d \r\n",adc_value);
-//        printf("PA6 Voltage : %.4f \r\n",adc_value*3.3f/4096);
+        adc_value[i] = HAL_ADC_GetValue(&hadc1);
     }
+    HAL_ADC_Stop(&hadc1);
+    
+    pack_adc_buf(adc1_to_pc_buf, adc_value[0], 0);
+    pack_adc_buf(adc2_to_pc_buf, adc_value[1], 1);
+    
+#ifdef DEBUG_ON
+        printf("%d,  %d. \n", adc_value[0], adc_value[1]);
+        //printf("PA0 Voltage : %.4f \r\n", adc_value[0]*3.3f/4096);
+#endif
 
-        
+    
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -451,22 +456,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		{
 			imu_state &= (~0x01);
             
+#ifndef DEBUG_ON
             HAL_UART_Transmit(&huart1, imu1_to_pc_buf, 35, 0xffff);
-            
+#endif
 			//printf("send imu 1.\n");
 		}
 		
 		if (imu_state & 0x02)
 		{
 			imu_state &= (~0x02);
-
+            
+#ifndef DEBUG_ON
             HAL_UART_Transmit(&huart1, imu2_to_pc_buf, 35, 0xffff);
-
+#endif
 			//printf("send imu 2.\n");
 		}
         
         // send adc value to pc
+#ifndef DEBUG_ON
         HAL_UART_Transmit(&huart1, adc1_to_pc_buf, 35, 0xffff);
+        HAL_UART_Transmit(&huart1, adc2_to_pc_buf, 35, 0xffff);
+#endif
         
         //printf("\nHAL_TIM_PeriodElapsedCallback timer3...\n\n");
     }
