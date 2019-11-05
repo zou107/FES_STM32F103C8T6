@@ -174,9 +174,17 @@ void pack_adc_buf(unsigned char *buf, unsigned int value, int id)
     buf[3] = (value >> 8);
     buf[4] = buf[0] + buf[1] + buf[2] + buf[3];
     
-    for(i = 5; i< IMU_DATA_LEN; i++)
-    {
+    for(i = 5; i< IMU_DATA_LEN; i++){
         buf[i] = 0;
+    }
+}
+
+void twinking_led(unsigned char num)
+{
+    while(num--) {
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); // LED on
+        HAL_Delay(100);
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET); // LED off
     }
 }
 
@@ -239,27 +247,22 @@ int main(void)
 //    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_12);
     HAL_Delay(5);
       
-    if (has_data_uart2)
-    {
+    if (has_data_uart2) {
         has_data_uart2 = 0;
 
         check_imu(imu1_buf, 1);
     }
 
-    if (has_data_uart3)
-    {
+    if (has_data_uart3) {
         has_data_uart3 = 0;
 
         check_imu(imu2_buf, 2);
     }
       
     // check imu state.
-    if(imu_state == (0x01 | 0x02))
-    {
+    if(imu_state == (0x01 | 0x02)) {
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); // LED on
-    }
-    else
-    {
+    } else {
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET); // LED off
     }
     
@@ -336,16 +339,51 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void initAngle()
+{
+    unsigned char data[3] = {0xFF, 0xAA, 0x52};
+    
+    HAL_UART_Transmit(&huart2, data, 3, 0xffff);
+    HAL_UART_Transmit(&huart3, data, 3, 0xffff);
+}
 
+void calibrationACC()
+{
+    unsigned char data[3] = {0xFF, 0xAA, 0x67};
+    
+    HAL_UART_Transmit(&huart2, data, 3, 0xffff);
+    HAL_UART_Transmit(&huart3, data, 3, 0xffff);
+}
 
-
+static unsigned char temp_uart1[3];
 static unsigned char temp_uart2[11];
 static unsigned char temp_uart3[11];
 
 void User_UART1_IRQHandler()
 {
-  
+    static unsigned char counter = 0;
 	
+    temp_uart1[counter] = aRxBuffer1[0];
+    
+    if(counter == 0 && temp_uart1[0] != 0xAA) // find head
+        return;   
+    counter++; 
+    
+    if(counter == 3) { // receive 3 byte
+        counter = 0;
+        
+        if(temp_uart1[1] == 0x35 && temp_uart1[2] == 0x35) {
+            // init angle(clear z)
+            initAngle();
+            
+            //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); // LED on
+        }else if(temp_uart1[1] == 0xCA && temp_uart1[2] == 0xCA) {
+            // calibration ACC
+            calibrationACC();
+            
+            //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET); // LED off
+        }
+    }
 }
 
 // imu 1
@@ -360,8 +398,7 @@ void User_UART2_IRQHandler()
         return;   
     counter++; 
     
-    if(counter == 11) // receive 11 byte
-    { 
+    if(counter == 11) { // receive 11 byte
         counter = 0;
         
         if(temp_uart2[1] == 0x51) {
@@ -380,7 +417,7 @@ void User_UART2_IRQHandler()
             temp_imu_state = 0;
             has_data_uart2 = 1;
         }
-    } 
+    }
 }
 
 // imu 2
@@ -395,8 +432,7 @@ void User_UART3_IRQHandler()
         return;   
     counter++; 
     
-    if(counter == 11) // receive 11 byte
-    { 
+    if(counter == 11) { // receive 11 byte
         counter = 0;
         
         if(temp_uart3[1] == 0x51) {
@@ -422,24 +458,19 @@ void User_UART3_IRQHandler()
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if(huart->Instance == USART1)
-    {
+    if(huart->Instance == USART1) {
         User_UART1_IRQHandler();
         
-//        HAL_UART_Transmit(&huart1, aRxBuffer1, 1, 100);
-//        HAL_UART_Receive_IT(&huart1, aRxBuffer1, 1);
-//        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_12);
+        HAL_UART_Receive_IT(&huart1, aRxBuffer1, 1);
     }
     
-    if(huart->Instance == USART2)
-    {
+    if(huart->Instance == USART2) {
         User_UART2_IRQHandler();
 
         HAL_UART_Receive_IT(&huart2, aRxBuffer2, 1);
     }
     
-    if(huart->Instance == USART3)
-    {
+    if(huart->Instance == USART3) {
         User_UART3_IRQHandler();
         
         HAL_UART_Receive_IT(&huart3, aRxBuffer3, 1);
@@ -449,11 +480,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-    if (htim->Instance == TIM3)
-    {
+    if (htim->Instance == TIM3) {
         // send data to pc
-		if(imu_state & 0x01) 
-		{
+		if(imu_state & 0x01) {
 			imu_state &= (~0x01);
             
 #ifndef DEBUG_ON
@@ -462,8 +491,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			//printf("send imu 1.\n");
 		}
 		
-		if (imu_state & 0x02)
-		{
+		if (imu_state & 0x02) {
 			imu_state &= (~0x02);
             
 #ifndef DEBUG_ON
