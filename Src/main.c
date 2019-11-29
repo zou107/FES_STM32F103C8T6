@@ -477,7 +477,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     }
 }
 
+/*******************************
+system clock : 64MHz
 
+64000000/1000 = 64000
+
+64000/3200=20hz  50ms
+64000/640=100hz  10ms
+********************************/
+// current timer : 50ms
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim->Instance == TIM3) {
